@@ -1,0 +1,33 @@
+{
+    "name": "chronicle-monorepo",
+    "private": true,
+    "type": "module",
+    "license": "MIT",
+    "workspaces": [
+        "packages/*",
+        "examples/*"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "watch": "tsc -b -w",
+        "clean": "tsc -b --clean",
+        "typecheck": "tsc -b",
+        "lint": "eslint .",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "test": "npm run build && npm test --workspaces --if-present",
+        "e2e": "npm run build && npm run e2e -w examples/demo-app"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9",
+        "@ianvs/prettier-plugin-sort-imports": "^4",
+        "@types/node": "^22",
+        "eslint": "^9",
+        "prettier": "^3",
+        "typescript": "^5.7",
+        "typescript-eslint": "^8"
+    }
+}

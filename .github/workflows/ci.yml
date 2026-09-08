@@ -1,0 +1,40 @@
+name: ci
+on:
+    push:
+        branches: [main]
+    pull_request:
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                node: [22, 24]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '${{ matrix.node }}'
+                  cache: npm
+            - run: npm ci --ignore-scripts
+            - run: npm run build
+            - run: npm run lint
+            - run: npm run format:check
+            - run: npm test --workspaces --if-present
+    e2e-mongo:
+        runs-on: ubuntu-latest
+        services:
+            mongodb:
+                image: mongo:7
+                ports:
+                    - 27017:27017
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: npm
+            - run: npm ci --ignore-scripts
+            - run: npm run build
+            - run: npm run e2e -w examples/demo-app
+              env:
+                  MONGO_URL: mongodb://localhost:27017/chronicle-e2e

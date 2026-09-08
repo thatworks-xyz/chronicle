@@ -1,0 +1,35 @@
+{
+    "name": "@chronicle/mongo",
+    "version": "0.1.0",
+    "description": "MongoDB storage adapter for @chronicle/core: implements the repository ports over Mongo collections (including time-series collections for change events and metric snapshots).",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "src",
+        "!dist/**/*.test.*",
+        "!src/**/*.test.ts"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "prepare": "tsc -b",
+        "test": "node --test \"dist/**/*.test.js\"",
+        "lint": "eslint src"
+    },
+    "dependencies": {
+        "@chronicle/core": "0.1.0",
+        "mongoose": "^8.9.5"
+    }
+}

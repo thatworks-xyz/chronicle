@@ -1,0 +1,20 @@
+{
+    "name": "demo-app",
+    "private": true,
+    "type": "module",
+    "description": "Runnable Chronicle example: synthetic demo-crm connector + minimal HTTP server. Doubles as the end-to-end test.",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "start": "node dist/main.js",
+        "e2e": "node --test dist/e2e.test.js",
+        "test": "node --test dist/e2e.test.js",
+        "lint": "eslint src"
+    },
+    "dependencies": {
+        "@chronicle/core": "0.1.0",
+        "@chronicle/mongo": "0.1.0"
+    }
+}

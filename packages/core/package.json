@@ -1,0 +1,43 @@
+{
+    "name": "@chronicle/core",
+    "version": "0.1.0",
+    "description": "Chronicle: an engine for building timelines, summaries, and analytics over work-item change events. Storage, LLM providers, and configuration are pluggable.",
+    "license": "MIT",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist",
+        "src",
+        "!dist/**/*.test.*",
+        "!src/**/*.test.ts"
+    ],
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "build": "tsc -b",
+        "prepare": "tsc -b",
+        "test": "node --test \"dist/**/*.test.js\"",
+        "lint": "eslint src"
+    },
+    "dependencies": {
+        "html-to-text": "^9.0.5",
+        "luxon": "^3.4.4",
+        "object-hash": "^3.0.0",
+        "showdown": "^2.1.0"
+    },
+    "devDependencies": {
+        "@types/html-to-text": "^9.0.1",
+        "@types/luxon": "^3.4.2",
+        "@types/object-hash": "^3.0.3",
+        "@types/showdown": "^2.0.1"
+    }
+}
