@@ -1,99 +1,47 @@
 # Chronicle
 
-Chronicle turns activity from your work tools into summaries and analytics.
+Chronicle turns mutable work data into a queryable history for grounded summaries and insights.
 
-Say your team's work lives in a CRM, a project tracker, or a training platform. Things change all day: tasks get completed, deals move stages, bookings come in. Chronicle ingests that activity and lets you ask, for any part of the data and any time period:
+A summary might answer "what happened under Acme Corp last week?" and link each claim to the item behind it. An insight might show which accounts have gone quiet, which projects keep slipping, or whether demand is outrunning capacity.
 
-- **"What happened under Acme Corp last week?"** → an LLM-written summary, with links back to each item it mentions
-- **"How many tasks are open right now? How does that compare to last month?"** → computed metrics and charts
+Generating the prose is the straightforward part. Chronicle handles the surrounding work: retaining history that source APIs discard, selecting the data that belongs in the prompt, and resolving every link to an ingested item.
 
-You write a small adapter (a "connector") that feeds your tool's data in. Chronicle handles the rest: storing items and their history, figuring out what's relevant in a time window, prompting the LLM, and computing metrics. It works with any database and any LLM provider — those are swappable pieces, and working defaults are included.
+Chronicle is not a generic RAG pipeline or agent framework. It is a historical data and context engine for products built on changing, hierarchical work data.
 
-## Packages
+## Why not call the source API directly?
 
-| Package                              | Description                                                             |
-| ------------------------------------ | ----------------------------------------------------------------------- |
-| [`@chronicle/core`](packages/core)   | The engine. Includes an in-memory storage option for trying things out. |
-| [`@chronicle/mongo`](packages/mongo) | Stores the data in MongoDB instead.                                     |
+| Source API plus an LLM                    | Chronicle                                            |
+| ----------------------------------------- | ---------------------------------------------------- |
+| Current state                             | Retained history                                     |
+| Flat or separately fetched records        | A traversable item hierarchy                         |
+| Ad hoc prompt assembly                    | Ranked, deterministic context                        |
+| References written by the model           | Links resolved by the engine                         |
+| One-off calculations over available state | Reusable, period-aware insights over historical data |
 
-Requires Node.js 22 or newer. See [Installation](#installation).
+## The data system behind summaries and insights
 
-## Installation
+Summaries and insights share the same foundation: retained history, a traversable data graph, and deterministic selection of the relevant records. That historical graph can drive metrics, trend comparisons, attention lists, and LLM-assisted interpretations as well as narrative summaries.
 
-The packages are not published to npm. Build them from this repository and install the resulting tarballs into your project:
+**Keeping the history the source does not.** Most work APIs give you current state, not a reliable account of what a task looked like two weeks ago. Chronicle builds that history itself. Each ingestion run resumes from a watermark, skips unchanged records using content hashes, and drops duplicate events. Questions about a time period are answered from a real changelog rather than a reconstruction of the present.
 
-```sh
-git clone <this repository> && cd chronicle
-npm ci
-npm run build
-npm pack -w packages/core -w packages/mongo
-# produces chronicle-core-0.1.0.tgz and chronicle-mongo-0.1.0.tgz
+**Selecting context from the data graph.** Items form a graph: companies contain projects, projects contain tasks, and tasks contain subtasks. A question about any node gathers its subtree, ranks what matters, and fits the result into the model's context window. One ingest supports summaries and insights at every level of the hierarchy, without separate indexes or pipelines for each scope.
 
-# then, in your own project:
-npm install /path/to/chronicle-core-0.1.0.tgz
-npm install /path/to/chronicle-mongo-0.1.0.tgz   # only if you use MongoDB storage
-```
+**Making context deterministic.** The same question over the same data produces the same context, stored under a stable id. You can inspect exactly what the model saw, reproduce an answer, test prompt changes against fixed inputs, and reuse one context across several summaries. Stable inputs also make context and model responses safe to cache.
 
-## The concepts, by example
+The reference `@chronicle/mongo` adapter maps these requirements onto MongoDB: time-series collections store changelogs and metric histories, while graph lookups traverse item hierarchies. Those choices are an implementation, not a constraint. Chronicle defines the storage layer through repository interfaces, so another database or combination of systems can provide the same capabilities.
 
-Imagine your CRM holds a company, **Acme Corp**, with a project and some tasks. The sections below cover every Chronicle concept using that example.
+Chronicle also keeps links out of the model's hands. Summaries refer to items with tokens; the engine resolves those tokens to URLs from the ingested records. Every generated link resolves to a real source item.
 
-### The data
+Chronicle is battle-tested in an enterprise-grade production environment. It was extracted from a system that already served these summaries and insights to customers, rather than designed as a demo or reference architecture. It retains the production-oriented behavior that made that deployment reliable: resumable ingestion, idempotent writes, access-aware retrieval, deterministic caching, and swappable infrastructure.
 
-Chronicle stores your tool's data as two required units — items and their changelog — plus an optional third for analytics.
-
-**WorkItem** — one thing being worked on: a company, a project, a task, a document. Work items link to their parents, mirroring your tool's own structure at any depth:
-
-```
-Acme Corp                          (company -> WorkItem)
-├── Website revamp                 (project -> WorkItem)
-│   ├── Design the homepage        (task -> WorkItem)
-│   │   └── Pick a color palette   (subtask -> WorkItem)
-│   └── Draft pricing copy         (task -> WorkItem)
-└── Prepare launch checklist       (task -> WorkItem)
-```
-
-This tree is what makes questions like "what happened under Acme Corp?" answerable — Chronicle walks down from the company and gathers everything beneath it, however deep.
-
-**ChangeEvent** — one entry in an item's changelog. Any change to an item is captured as a change event: the task was created, its status moved to Done, its description was edited, someone was assigned, a comment was added — each with a timestamp and who did it. Most tools only show you the current state of things; Chronicle stores the history of changes, which is what lets it answer questions about a time period. Summaries are written by reading the changelog for that period.
-
-Items plus their changelog are enough for timelines and summaries to work. The third unit is optional:
-
-**MetricSnapshot** — a pre-computed metric, saved over time. Take a derived number your tool doesn't store anywhere, like a task completion rate: "Acme Corp was at 67% completion on March 1st". Answering "how did completion trend this quarter?" from raw data would mean reconstructing every past state — slow, and impossible if the source doesn't keep history. Instead, your connector computes the rate during each data pull and Chronicle saves it whenever the value changes. Analytics then just read the saved series back. Skip snapshots entirely if you don't need analytics.
-
-### Getting data in
-
-**Connector** — the one piece of code that knows about your tool; everything else in Chronicle is generic. It has two jobs: fetch what changed since the last run (Chronicle tells it where it left off), and translate your tool's payloads into work items and change events. Write one connector and every Chronicle feature — summaries, insights, timelines — works for that tool.
-
-### Asking questions
-
-**Scope** — the item a question is about. Everything beneath the chosen item is included:
-
-```
-Scope: Acme Corp                       Scope: Website revamp
-
-✓ Acme Corp                              Acme Corp
-├── ✓ Website revamp                   ├── ✓ Website revamp
-│   ├── ✓ Design the homepage          │   ├── ✓ Design the homepage
-│   │   └── ✓ Pick a color palette     │   │   └── ✓ Pick a color palette
-│   └── ✓ Draft pricing copy           │   └── ✓ Draft pricing copy
-└── ✓ Prepare launch checklist         └──   Prepare launch checklist
-```
-
-Scopes are what users of your product would pick from a list — the same ingested data answers questions at every level of the tree without any extra setup.
-
-**Context** — the collected picture of what happened for one scope and one time window: the relevant items, their changelog entries, and rankings of what matters most. Collecting all that takes work, so Chronicle does it once, saves the result under a stable id, and returns the same cached context whenever the same question is asked again. You create a context first, then run summaries against it — several different summaries can share one context.
-
-**SummaryPreset** — a summary recipe, defined as data: which items to include, how to group them, how detailed to be. You'll usually want the same few summaries again and again ("weekly task highlights"); a preset captures that once, so your product can offer it as a menu option instead of hand-crafting a prompt each time.
-
-**Insight** — a chart or metric your product can show for any scope: "task completion rate, with the trend against last month". You define once how to compute the number (usually by reading metric snapshots) and how to present it (metric card, table, chart); Chronicle then runs it for whichever scope and time period a user is looking at, and can compare periods for trends. This is how you build an analytics dashboard on top of the ingested data without writing per-customer query and charting code.
+Integration starts with a small adapter, called a connector, that feeds your tool's data into Chronicle. Add metric snapshots and domain-specific insights as needed. Storage and the LLM provider are swappable. The included in-memory storage and client for Anthropic and OpenAI-compatible APIs let you try the engine without running external infrastructure.
 
 ## Quick start
 
 ```ts
 import { ChronicleEngine, createInMemoryRepositories, LlmClient } from '@chronicle/core';
 
-// Storage. In-memory is great for trying things out; use @chronicle/mongo
+// Storage: in-memory for trying things out; use @chronicle/mongo
 // (or your own adapter) to persist for real.
 const repos = createInMemoryRepositories();
 
@@ -131,11 +79,63 @@ const insight = await engine.runInsight(principal, 'open_tasks', scopes, {
 });
 ```
 
-Chronicle has no opinion about how you expose this — wrap these three calls in whatever HTTP server, CLI, or job you already have.
+Chronicle does not include a server. Call it from whichever server or worker your product already runs.
+
+## The concepts
+
+Consider a CRM holding a company, **Acme Corp**, with a project and several tasks beneath it.
+
+### What gets stored
+
+Two record types are required. A third is optional and is used for numerical insights.
+
+**WorkItem** (required) represents something being worked on: a company, project, task, or document. Items link to their parents, preserving your tool's hierarchy at any depth:
+
+```
+Acme Corp                          (company -> WorkItem)
+├── Website revamp                 (project -> WorkItem)
+│   ├── Design the homepage        (task -> WorkItem)
+│   │   └── Pick a color palette   (subtask -> WorkItem)
+│   └── Draft pricing copy         (task -> WorkItem)
+└── Prepare launch checklist       (task -> WorkItem)
+```
+
+**ChangeEvent** (required) records one entry in an item's changelog: a task was created, its status moved to Done, someone was assigned, or a comment was added. Each event includes a timestamp and its actor. Chronicle reads these events when it builds a summary for a requested period.
+
+Work items and change events are enough for timelines and summaries.
+
+**MetricSnapshot** (optional) stores a precomputed number over time. Your connector might calculate that Acme Corp had a 67% task-completion rate on March 1. Chronicle saves the value when it changes, allowing an insight to chart a series that the source system never retained. You can omit snapshots if you do not need numerical insights.
+
+### Getting data in
+
+A **Connector** is the only component that knows about your source tool. It fetches changes since the previous run—Chronicle supplies the watermark—and maps the source payloads into work items and change events.
+
+### Asking questions
+
+A **Scope** is the item a question is about. Its descendants are included automatically:
+
+```
+Scope: Acme Corp                       Scope: Website revamp
+
+✓ Acme Corp                              Acme Corp
+├── ✓ Website revamp                   ├── ✓ Website revamp
+│   ├── ✓ Design the homepage          │   ├── ✓ Design the homepage
+│   │   └── ✓ Pick a color palette     │   │   └── ✓ Pick a color palette
+│   └── ✓ Draft pricing copy           │   └── ✓ Draft pricing copy
+└── ✓ Prepare launch checklist         └──   Prepare launch checklist
+```
+
+In your product, a scope might be the value a user chooses from a dropdown. One ingest supports questions at every level of the hierarchy.
+
+A **Context** contains the relevant items, changelog entries, and rankings for one scope and time window. Chronicle builds it once, stores it under a stable id, and returns the cached result when the same request recurs. You create a context first, then generate one or more summaries from it.
+
+A **SummaryPreset** is a reusable summary recipe. It controls which items to include, how to group them, and how much detail to produce. You might define a "weekly task highlights" preset and expose it as a menu option.
+
+An **Insight** is a reusable analysis for a scope and time period. A simple insight can turn metric snapshots into a card or trend chart. A richer one can inspect the item graph and changelog to produce a table of work that needs attention, optionally asking an LLM to explain why each item was selected. Insights can compare periods and form the building blocks of a dashboard.
 
 ## Start from the example app
 
-[`examples/demo-app`](examples/demo-app) is a small, complete, heavily commented application: a fake CRM connector, one insight, one summary preset, and a tiny HTTP server. Every file explains what it's doing and why, so it doubles as a tutorial — copy it and swap the fake connector for your real one.
+[`examples/demo-app`](examples/demo-app) is a complete, heavily commented application with a fake CRM connector, one insight, one summary preset, and a small HTTP server. Copy it and replace the fake connector with your own.
 
 ```sh
 npm ci
@@ -144,7 +144,7 @@ npm test                            # runs everything, no external services need
 node examples/demo-app/dist/main.js # or run the demo server on :3000
 ```
 
-By default the example runs fully self-contained (in-memory storage, scripted LLM responses). Two environment variables switch in real infrastructure:
+The example runs fully self-contained by default, using in-memory storage and scripted LLM responses. Set either environment variable to use real infrastructure:
 
 ```sh
 MONGO_URL=mongodb://localhost:27017/demo npm run e2e   # real MongoDB
@@ -155,26 +155,57 @@ ANTHROPIC_API_KEY=sk-... npm run e2e                   # real LLM
 
 Subclass `ConnectorSource` and implement two methods:
 
-- `getChanges(fromDate, toDate)` — call your tool's API and return whatever changed in that window. Chronicle tells you where the last run left off.
-- `map(userId, rawChanges)` — translate your tool's payloads into `WorkItem`s and `ChangeEvent`s.
+- `getChanges(fromDate, toDate)` calls your tool's API and returns the changes in that window. Chronicle tells you where the previous run stopped.
+- `map(userId, rawChanges)` converts those payloads into `WorkItem`s and `ChangeEvent`s.
 
-That's the core of it. Optional extras: provide items that aren't part of the change feed (like the company itself), and define metric snapshot calculations that run after each ingest. The engine handles scheduling bookkeeping, skipping unchanged items, and deduplicating events.
+A connector may also provide items that do not appear in the change feed, such as the company that contains a set of projects. Chronicle manages watermarks, skips unchanged items through hash-guarded upserts, and deduplicates events.
 
-The commented reference is [`examples/demo-app/src/connector.ts`](examples/demo-app/src/connector.ts).
+You can adopt the system in stages:
+
+1. **Implement a connector** for timelines and LLM summaries.
+2. **Calculate metric snapshots** during ingestion for counts, rates, and trends.
+3. **Register domain-specific insights** for anything from metric cards to LLM-assisted analysis of the graph.
+
+The commented implementation in [`examples/demo-app/src`](examples/demo-app/src) covers all three stages: `connector.ts` handles ingestion and metric snapshots, while `insight.ts` defines the insight.
+
+## Packages
+
+| Package                              | Description                                                                                                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@chronicle/core`](packages/core)   | The engine, including in-memory storage for local use and tests. Four runtime dependencies.                                                                |
+| [`@chronicle/mongo`](packages/mongo) | The reference persistent-storage adapter. Uses MongoDB time-series collections for changelogs and metrics, and graph queries for walking item hierarchies. |
+
+## Installation
+
+Requires Node.js 22 or newer. The packages are not published to npm. Build them from this repository and install the resulting tarballs into your project:
+
+```sh
+git clone <this repository> && cd chronicle
+npm ci
+npm run build
+npm pack -w packages/core -w packages/mongo
+# produces chronicle-core-0.1.0.tgz and chronicle-mongo-0.1.0.tgz
+
+# then, in your own project:
+npm install /path/to/chronicle-core-0.1.0.tgz
+npm install /path/to/chronicle-mongo-0.1.0.tgz   # only if you use MongoDB storage
+```
 
 ## Swappable pieces
 
-Everything external to the engine is an interface you can replace. You only need to think about the ones marked "none" below; the rest have working defaults:
+External dependencies sit behind interfaces. Rows marked "none" require an explicit choice; the others have built-in defaults:
+
+The default access-control implementation allows every caller to see every item. That is suitable for a single-tenant deployment or local evaluation; multi-tenant applications must provide an `AccessControl` implementation.
 
 | Piece                | What it does                                  | Default                                                      |
 | -------------------- | --------------------------------------------- | ------------------------------------------------------------ |
 | Storage repositories | persist items, events, snapshots              | none — use in-memory (ships with core) or `@chronicle/mongo` |
 | `LlmService`         | writes the summaries                          | none — `LlmClient` covers Anthropic / OpenAI-compatible APIs |
 | `KeyValueCache`      | caches contexts and LLM responses             | in-memory                                                    |
-| `AccessControl`      | decides who can see which items               | everyone sees everything (fine for single-tenant)            |
-| `EngineConfig`       | model choices, limits, where item links point | sensible defaults                                            |
+| `AccessControl`      | decides who can see which items               | permissive; replace for multi-tenant use                     |
+| `EngineConfig`       | model choices, limits, where item links point | defaults                                                     |
 
-Writing a storage adapter for another database means implementing the repository interfaces in `@chronicle/core`. The tests in `packages/core/src/testing/in-memory-repos.test.ts` spell out the behaviors an adapter must get right.
+To add another database, implement the repository interfaces in `@chronicle/core`. The adapter contract is exercised in `packages/core/src/testing/in-memory-repos.test.ts`.
 
 ## Development
 
@@ -185,7 +216,7 @@ npm run lint
 npm run format
 ```
 
-Tests use Node's built-in test runner (`node:test`) — there are no test framework dependencies. Packages compile to `dist/` (gitignored); published entry points reference the compiled output.
+Tests use Node's built-in test runner (`node:test`), with no test-framework dependency. Packages compile to `dist/`, which is gitignored; package entry points reference the compiled output.
 
 ## License
 
