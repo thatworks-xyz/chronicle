@@ -8,16 +8,6 @@ Generating the prose is the straightforward part. Chronicle handles the surround
 
 Chronicle is not a generic RAG pipeline or agent framework. It is a historical data and context engine for products built on changing, hierarchical work data.
 
-## Why not call the source API directly?
-
-| Source API plus an LLM                    | Chronicle                                            |
-| ----------------------------------------- | ---------------------------------------------------- |
-| Current state                             | Retained history                                     |
-| Flat or separately fetched records        | A traversable item hierarchy                         |
-| Ad hoc prompt assembly                    | Ranked, deterministic context                        |
-| References written by the model           | Links resolved by the engine                         |
-| One-off calculations over available state | Reusable, period-aware insights over historical data |
-
 ## The data system behind summaries and insights
 
 Summaries and insights share the same foundation: retained history, a traversable data graph, and deterministic selection of the relevant records. That historical graph can drive metrics, trend comparisons, attention lists, and LLM-assisted interpretations as well as narrative summaries.
@@ -35,6 +25,16 @@ Chronicle also keeps links out of the model's hands. Summaries refer to items wi
 Chronicle is battle-tested in an enterprise-grade production environment. It was extracted from a system that already served these summaries and insights to customers, rather than designed as a demo or reference architecture. It retains the production-oriented behavior that made that deployment reliable: resumable ingestion, idempotent writes, access-aware retrieval, deterministic caching, and swappable infrastructure.
 
 Integration starts with a small adapter, called a connector, that feeds your tool's data into Chronicle. Add metric snapshots and domain-specific insights as needed. Storage and the LLM provider are swappable. The included in-memory storage and client for Anthropic and OpenAI-compatible APIs let you try the engine without running external infrastructure.
+
+## Why not call the source API directly?
+
+| Source API plus an LLM                    | Chronicle                                            |
+| ----------------------------------------- | ---------------------------------------------------- |
+| Current state                             | Retained history                                     |
+| Flat or separately fetched records        | A traversable item hierarchy                         |
+| Ad hoc prompt assembly                    | Ranked, deterministic context                        |
+| References written by the model           | Links resolved by the engine                         |
+| One-off calculations over available state | Reusable, period-aware insights over historical data |
 
 ## Quick start
 
