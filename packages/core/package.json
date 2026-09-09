@@ -1,7 +1,7 @@
 {
     "name": "@chronicle/core",
     "version": "0.1.1",
-    "description": "Chronicle: an engine for building timelines, summaries, and analytics over work-item change events. Storage, LLM providers, and configuration are pluggable.",
+    "description": "Chronicle: an engine for building timelines, summaries, and insights over work-item change events. Storage, LLM providers, and configuration are pluggable.",
     "license": "MIT",
     "type": "module",
     "main": "./dist/index.js",
