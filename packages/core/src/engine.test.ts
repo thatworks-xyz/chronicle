@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { describe, it } from 'node:test';
 import {
     ChangesSummaryField,
@@ -426,6 +427,69 @@ describe('ChronicleEngine end-to-end (in-memory repositories, fake LLM)', () => 
 
     describe('ingest', () => {
         const INGESTED_UUID = 'cccccccc-0000-0000-0000-000000000001';
+
+        it('reconciles freshly generated uuids against stored items across polls', async () => {
+            // Mappers typically generate a new uuid every poll; the runner must
+            // adopt the stored uuid for items that already exist instead of
+            // inserting duplicates.
+            class RandomUuidConnector extends ConnectorSource<{ n: number }, undefined, unknown> {
+                get connectorId() {
+                    return CONNECTOR;
+                }
+                get connectorUserId() {
+                    return ACCOUNT;
+                }
+                async initializeState() {
+                    // no-op
+                }
+                getState() {
+                    return undefined;
+                }
+                async getChanges() {
+                    return { changes: [{ n: 1 }] };
+                }
+                async getItemForId() {
+                    return undefined;
+                }
+                async map(userId: string, objs: { n: number }[]) {
+                    const item = makeItem({
+                        uuid: randomUUID(),
+                        idsFromConnector: {
+                            idFromConnector: 'stable-connector-id',
+                            connectorObjectType: 'task',
+                            connectorUserId: ACCOUNT,
+                        },
+                        title: `Task v${objs[0].n}`,
+                    }) as ItemWithParentData<unknown>;
+                    const change = makeEvent(item.uuid, new Date());
+                    change.idsFromConnector = item.idsFromConnector;
+                    return {
+                        itemsWithChanges: [{ item, changelog: [change] }] as ItemWithParentDataChangelog<unknown>[],
+                    };
+                }
+            }
+
+            const { engine, repos } = makeEngine();
+            const connector = new RandomUuidConnector();
+
+            const report1 = await engine.ingest(connector, { userId: USER });
+            assert.equal(report1.items.inserted, 1);
+
+            const report2 = await engine.ingest(connector, { userId: USER });
+            // Same content under a fresh uuid must be recognized as the same item
+            assert.equal(report2.items.inserted, 0);
+            assert.equal(report2.items.unchanged, 1);
+
+            const stored = await repos.items.getByConnectorIds(USER, CONNECTOR, {
+                idFromConnector: 'stable-connector-id',
+                connectorObjectType: 'task',
+                connectorUserId: ACCOUNT,
+            });
+            assert.notEqual(stored, undefined);
+            // Both polls' change events landed on the stored item's uuid
+            const events = repos.events.events.filter((e) => e.itemUuid === stored?.uuid);
+            assert.equal(events.length, 2);
+        });
 
         class FakeConnector extends ConnectorSource<{ n: number }, undefined, unknown> {
             polls: { fromDate: Date; firstPoll: boolean }[] = [];

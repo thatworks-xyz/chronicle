@@ -14,7 +14,7 @@
         "lint": "eslint src"
     },
     "dependencies": {
-        "@chronicle/core": "0.1.0",
-        "@chronicle/mongo": "0.1.0"
+        "@chronicle/core": "0.1.1",
+        "@chronicle/mongo": "0.1.1"
     }
 }

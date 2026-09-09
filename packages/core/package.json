@@ -1,6 +1,6 @@
 {
     "name": "@chronicle/core",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Chronicle: an engine for building timelines, summaries, and analytics over work-item change events. Storage, LLM providers, and configuration are pluggable.",
     "license": "MIT",
     "type": "module",

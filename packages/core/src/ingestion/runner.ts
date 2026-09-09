@@ -1,6 +1,9 @@
+import { ChangeEvent } from '../domain/change-event.js';
+import { ConnectorItemId } from '../domain/connector-item-id.js';
 import { MetricSnapshot } from '../domain/metric-snapshot.js';
 import { EngineRuntime } from '../ports/runtime.js';
 import { ConnectorSource, IngestionServices } from './connector.js';
+import { ItemWithParentData } from './mapper.js';
 
 function getExceptionMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -78,6 +81,14 @@ export class IngestionRunner {
         // Fetch + map
         const result = await connector.get(opts.userId, fromDate, opts.toDate, { firstPoll }, services);
         if (result) {
+            // Adopt stored uuids for items that already exist (mappers generate
+            // fresh uuids on every poll)
+            await this.reconcileItemIds(
+                opts.userId,
+                result.itemWithChanges.map((v) => v.item),
+                result.itemWithChanges.flatMap((v) => v.changes),
+            );
+
             // Store items (hash-guarded upsert)
             const upsert = await runtime.repos.items.upsertIfChanged(
                 result.itemWithChanges.map((v) => ({ item: v.item })),
@@ -98,6 +109,7 @@ export class IngestionRunner {
             try {
                 const additional = await connector.pollAdditionalItems(opts.userId, fromDate, firstPoll, services);
                 if (additional.additionalItems.length > 0) {
+                    await this.reconcileItemIds(opts.userId, additional.additionalItems, additional.changelogs ?? []);
                     const upsert = await runtime.repos.items.upsertIfChanged(
                         additional.additionalItems.map((item) => ({ item })),
                     );
@@ -130,6 +142,58 @@ export class IngestionRunner {
         }
 
         return report;
+    }
+
+    /**
+     * Mapped items carry freshly generated uuids, but an item that already
+     * exists in storage must keep its stored uuid — contexts, change events,
+     * and metric snapshots all reference it. Before upserting, look each item
+     * up by its connector identity and adopt the stored uuid; parent
+     * references and change events are rewritten to match. Items genuinely
+     * new to storage keep their mapped uuid.
+     */
+    private async reconcileItemIds(
+        userId: string,
+        items: ItemWithParentData<unknown>[],
+        changes: ChangeEvent[],
+    ): Promise<void> {
+        const repo = this._runtime.repos.items;
+        const key = (ids: ConnectorItemId): string =>
+            [
+                ids.connectorObjectType,
+                ids.idFromConnector,
+                ids.connectorUserId,
+                ids.additionalIdFromConnector ?? '',
+            ].join('\u0000');
+
+        // Resolve each distinct connector identity once. The first mapped
+        // occurrence's uuid is the fallback, which also collapses duplicates
+        // of the same object within one poll batch.
+        const uuidByKey = new Map<string, string>();
+        for (const item of items) {
+            const k = key(item.idsFromConnector);
+            if (uuidByKey.has(k)) {
+                continue;
+            }
+            const found = await repo.getByConnectorIds(userId, item.connector, item.idsFromConnector);
+            uuidByKey.set(k, found?.uuid ?? item.uuid);
+        }
+
+        for (const item of items) {
+            item.uuid = uuidByKey.get(key(item.idsFromConnector)) ?? item.uuid;
+            for (const parent of item.parents) {
+                const parentUuid = uuidByKey.get(key(parent.idsFromConnector));
+                if (parentUuid) {
+                    parent.itemUuid = parentUuid;
+                }
+            }
+        }
+        for (const change of changes) {
+            const changeUuid = uuidByKey.get(key(change.idsFromConnector));
+            if (changeUuid) {
+                change.itemUuid = changeUuid;
+            }
+        }
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

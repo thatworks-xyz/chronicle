@@ -1,6 +1,6 @@
 {
     "name": "@chronicle/mongo",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "MongoDB storage adapter for @chronicle/core: implements the repository ports over Mongo collections (including time-series collections for change events and metric snapshots).",
     "license": "MIT",
     "type": "module",
@@ -29,7 +29,7 @@
         "lint": "eslint src"
     },
     "dependencies": {
-        "@chronicle/core": "0.1.0",
+        "@chronicle/core": "0.1.1",
         "mongoose": "^8.9.5"
     }
 }
